@@ -33,7 +33,10 @@ function isMissingTableError(error: { code?: string; message?: string }, tableNa
 
 function getSupabaseClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  // The service key is preferred for server-side reads, but the publishable
+  // key keeps the read-only reviews endpoint functional in preview deployments
+  // where only public Supabase credentials are available.
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 
   if (!url || !key) {
     throw new Error('Supabase credentials are not configured')
@@ -180,14 +183,10 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'An error occurred'
     console.error('[v0] Unexpected error in GET /api/reviews:', error)
-    return NextResponse.json(
-      { 
-        error: errorMessage,
-        code: 'INTERNAL_SERVER_ERROR',
-        details: process.env.NODE_ENV === 'development' ? error instanceof Error ? error.stack : String(error) : undefined
-      },
-      { status: 500 }
-    )
+      // Reviews are optional content. Keep the page usable when Supabase is
+      // unavailable, misconfigured, or has not been initialized yet.
+      console.warn('[v0] Falling back to local reviews after Supabase read failure')
+      return NextResponse.json(buildReviewsPayload(await readLocalReviews()))
   }
 }
 
